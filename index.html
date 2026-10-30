@@ -1,0 +1,1342 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://omamgmyyqnawlagbemcm.supabase.co; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; upgrade-insecure-requests">
+<title>競輪AI予想</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1020;--card:#151c2f;--line:#2a3550;--muted:#b2bdd0}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.7}
+.wrap{width:min(92%,760px);margin:auto;padding:32px 0 60px}
+header{text-align:center;margin-bottom:28px}
+h1{font-size:30px;margin:0} h2{font-size:21px;margin:0 0 16px} h3{font-size:17px;margin:0 0 8px}
+.sub,.note{color:var(--muted)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:20px;margin-bottom:20px}
+dl{margin:0}.status-row{padding:13px 0;border-bottom:1px solid var(--line)}dt{color:var(--muted)}dd{margin:4px 0 0;font-weight:700}
+.ok{color:#86efac}.pending{color:#fcd34d}.error{color:#fda4af}.notice{color:#fcd34d}.hidden{display:none!important}
+label{display:block;margin-top:12px;margin-bottom:5px;color:var(--muted)}
+input,textarea{width:100%;padding:13px 14px;border:1px solid var(--line);border-radius:10px;background:#0f172a;color:#fff;font-size:16px}
+input[type="checkbox"]{width:auto;margin-right:8px}
+textarea{min-height:220px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;line-height:1.5}
+button{width:100%;margin-top:16px;padding:14px;border:0;border-radius:11px;background:#2f6df6;color:#fff;font-size:16px;font-weight:700;cursor:pointer}
+button.secondary{background:#354158}button:disabled{background:#354158;color:#c8d0dd;cursor:not-allowed}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid #93c5fd;outline-offset:3px}
+.categories{display:grid;gap:12px;grid-template-columns:repeat(2,minmax(0,1fr))}
+.pick{padding:16px;background:#0f172a;border:1px solid var(--line);border-radius:12px}.pick p{margin:0 0 8px;color:var(--muted)}.pick-item{padding:10px 0;border-top:1px solid var(--line)}.pick-item:first-child{border-top:0}.combo{font-weight:800;color:#fff}.meta{font-size:13px;color:var(--muted)}
+.note{font-size:14px}footer{text-align:center}
+@media(max-width:480px){.categories{grid-template-columns:1fr}h1{font-size:26px}}
+</style>
+</head>
+<body>
+<main class="wrap">
+<header>
+  <h1>🚴 競輪AI予想</h1>
+  <p class="sub">個人利用版・owner認証対応</p>
+  <p class="note"><a id="prospective-tools-link" href="prospective-tools.html" style="color:#93c5fd">前向き検証ツール（端末内処理）を開く</a></p>
+</header>
+
+<section class="card" aria-labelledby="auth-title">
+  <h2 id="auth-title">ログイン</h2>
+  <div id="logged-out">
+    <label for="email">メールアドレス</label>
+    <input id="email" type="email" autocomplete="username" inputmode="email" placeholder="ログイン用メールアドレス">
+    <label for="password">パスワード</label>
+    <input id="password" type="password" autocomplete="current-password">
+    <button id="login" type="button">ログイン</button>
+    <p id="auth-message" class="note">パスワードはSupabaseへ直接送信され、このページのコードには保存しません。</p>
+  </div>
+
+  <div id="logged-in" class="hidden">
+    <dl>
+      <div class="status-row"><dt>認証状態</dt><dd id="auth-status" class="ok">ログイン済み</dd></div>
+      <div class="status-row"><dt>アカウント</dt><dd id="account-email">-</dd></div>
+      <div class="status-row"><dt>権限</dt><dd id="account-role">-</dd></div>
+      <div class="status-row"><dt>プラン</dt><dd id="account-plan">-</dd></div>
+    </dl>
+    <p id="owner-message" class="note"></p>
+    <button id="logout" class="secondary" type="button">ログアウト</button>
+  </div>
+</section>
+
+<section class="card" aria-labelledby="status-title">
+  <h2 id="status-title">接続状態</h2>
+  <div role="status" aria-live="polite" aria-atomic="true">
+    <dl>
+      <div class="status-row"><dt>Web → Supabase API</dt><dd id="api-status">未確認</dd></div>
+      <div class="status-row"><dt>DB保存基盤</dt><dd id="storage-status">未確認</dd></div>
+      <div class="status-row"><dt>Web owner認証</dt><dd id="owner-status" class="pending">未ログイン</dd></div>
+      <div class="status-row"><dt>本番サーバー owner認証</dt><dd id="server-owner-status" class="pending">未ログイン</dd></div>
+      <div class="status-row"><dt>開発AI owner認証</dt><dd id="dev-owner-status" class="pending">未ログイン</dd></div>
+      <div class="status-row"><dt>Phase32 実レースdry-run</dt><dd id="dev-engine-status" class="pending">未確認</dd></div>
+      <div class="status-row"><dt>履歴生成パイプライン</dt><dd id="history-pipeline-status" class="pending">未確認</dd></div>
+      <div class="status-row"><dt>履歴バックテスト/確率校正</dt><dd id="backtest-engine-status" class="pending">未確認</dd></div>
+      <div class="status-row"><dt>開発AIのDB書き込み</dt><dd id="dev-write-status" class="pending">未確認</dd></div>
+      <div class="status-row"><dt>本番データ自動取得</dt><dd id="data-source-status" class="pending">未接続</dd></div>
+      <div class="status-row"><dt>本番AI予想エンジン</dt><dd id="engine-status" class="pending">未接続</dd></div>
+      <div class="status-row"><dt>公開WebからのDB書き込み</dt><dd id="write-status">未確認</dd></div>
+    </dl>
+    <p id="status-message" class="note">本番系とowner専用dry-runを分離して状態を確認します。</p>
+    <p id="checked-at" class="note">確認時刻：未確認</p>
+  </div>
+  <button id="refresh" type="button">接続状態を再確認</button>
+  <p class="note">実レースdry-runはログイン済みownerのみ利用できます。確認済みデータだけを使い、未確認オッズで不足カテゴリを補完しません。DB保存は行いません。</p>
+</section>
+
+<section class="card" aria-labelledby="prediction-title">
+  <h2 id="prediction-title">実レースdry-run</h2>
+  <p class="notice">開発検証専用です。予想結果はDBへ保存されず、本番予想として公開されません。確率は未校正のため金銭的EVには使用しません。</p>
+
+  <label for="race-file">レースJSONファイル</label>
+  <input id="race-file" type="file" accept=".json,application/json">
+  <p class="note">スマホではJSONファイルを選ぶだけで入力できます。下の欄へ直接貼り付けても実行できます。</p>
+
+  <label for="race-json">レースデータJSON</label>
+  <textarea id="race-json" spellcheck="false" placeholder='{"race":{"date":"2026-09-15","venue":"伊東温泉","race_number":9},"players":[...],"odds":{"trifecta":{...}}}'></textarea>
+
+  <label for="scheduled-start">発走予定時刻（日本時間）</label>
+  <input id="scheduled-start" type="datetime-local" step="1">
+  <label><input id="prestart-confirmed" type="checkbox">このレースがまだ発走していないことを確認しました</label>
+  <p class="note">検証用の保存には、予定時刻と確認を入力してからdry-runを実行してください。予定時刻は自動取得しません。入力した時刻と端末の時計で判定します。</p>
+  <button id="run-dry" type="button" disabled>Phase32でdry-run（保存なし）</button>
+  <button id="save-snapshot" class="secondary" type="button" disabled>予測スナップショットをJSON保存</button>
+  <p id="snapshot-note" class="note">dry-run成功後に、予測時点の入力・全確率・15点を端末へ保存できます。DBには保存しません。</p>
+  <p id="run-dry-note" class="note">owner認証と開発AIの安全状態を確認すると実行可能になります。</p>
+  <p id="input-quality" class="note">入力品質：未実行</p>
+
+  <div class="categories" id="prediction-categories">
+    <article class="pick"><h3>的中率重視</h3><div id="cat-hit"><p>未実行</p></div></article>
+    <article class="pick"><h3>バランス</h3><div id="cat-balance"><p>未実行</p></div></article>
+    <article class="pick"><h3>中穴</h3><div id="cat-middle"><p>未実行</p></div></article>
+    <article class="pick"><h3>大穴</h3><div id="cat-longshot"><p>未実行</p></div></article>
+    <article class="pick"><h3>超大穴</h3><div id="cat-super"><p>未実行</p></div></article>
+  </div>
+</section>
+
+<section class="card" aria-labelledby="history-title">
+  <h2 id="history-title">結果確定 → 履歴JSON生成</h2>
+  <p class="notice">開発検証専用です。予測スナップショットと確定結果から履歴を生成し、そのままバックテストします。前向き検証と再現・旧データを分離し、DB保存・本番予想・外部データ取得は行いません。</p>
+
+  <label for="history-snapshot-file">予測スナップショットJSON</label>
+  <input id="history-snapshot-file" type="file" accept=".json,application/json">
+  <p id="history-snapshot-note" class="note">レース前に保存した phase32-snapshot-...json を選択してください。</p>
+
+  <label for="result-combo">確定3連単</label>
+  <input id="result-combo" type="text" inputmode="numeric" autocomplete="off" placeholder="例：1-3-2">
+
+  <label for="result-odds">確定オッズ（倍）</label>
+  <input id="result-odds" type="number" inputmode="decimal" min="0.1" step="0.1" placeholder="例：9.1">
+
+  <label for="result-time">結果確定時刻（前向き検証は必須）</label>
+  <input id="result-time" type="datetime-local" step="1">
+  <p class="note">端末の現地時刻として入力します。前向き検証ではスナップショット保存後の時刻が必須です。再現・旧データで正確な時刻が不明な場合は、空欄のまま実行できます（不明として記録）。</p>
+
+  <button id="run-history" type="button" disabled>履歴生成 → バックテスト（保存なし）</button>
+  <button id="save-history" class="secondary" type="button" disabled>履歴JSONを端末へ保存</button>
+  <p id="history-note" class="note">owner認証と履歴パイプラインの安全状態を確認すると実行可能になります。</p>
+
+  <label for="history-json">生成した履歴JSON</label>
+  <textarea id="history-json" spellcheck="false" readonly placeholder="実行後に、backtest-engine-devへそのまま渡せるJSONを表示します。"></textarea>
+  <p id="history-backtest-summary" class="note">バックテスト：未実行</p>
+  <p id="training-readiness" class="note">学習用データ：未生成</p>
+</section>
+
+
+<section class="card" aria-labelledby="dataset-title">
+  <h2 id="dataset-title">履歴データセット（複数レース）</h2>
+  <p class="notice">複数の履歴JSONを端末内で統合します。重複は除外し、DBへ保存しません。統合後は同じ backtest-engine-dev で一括評価できます。</p>
+
+  <label for="history-dataset-files">履歴JSONファイル（複数選択可）</label>
+  <input id="history-dataset-files" type="file" accept=".json,application/json" multiple>
+  <p id="history-dataset-note" class="note">backtest-history-...json を複数選択してください。既存データセットJSONも追加できます。</p>
+
+  <div class="categories">
+    <article class="pick"><h3>収録レース</h3><p id="dataset-record-count">0件</p></article>
+    <article class="pick"><h3>重複除外</h3><p id="dataset-duplicate-count">0件</p></article>
+    <article class="pick"><h3>前向き実データ</h3><p id="dataset-prospective-count">0/5件</p></article>
+    <article class="pick"><h3>比較準備</h3><p id="dataset-prospective-remaining">あと5件</p></article>
+  </div>
+  <p id="dataset-collection-detail" class="note">5件は時系列比較を開始する技術上の最低予測時点数です。統計的な十分性や収益性を意味しません。</p>
+
+  <button id="save-dataset" class="secondary" type="button" disabled>統合履歴JSONを端末へ保存</button>
+  <button id="run-dataset-backtest" type="button" disabled>統合データを一括バックテスト（保存なし）</button>
+
+  <label for="history-dataset-json">統合データセットJSON</label>
+  <textarea id="history-dataset-json" spellcheck="false" readonly placeholder='{"mode":"dry_run","payload":{"records":[...]}}'></textarea>
+</section>
+
+<section class="card" aria-labelledby="backtest-title">
+  <h2 id="backtest-title">履歴バックテスト / 確率校正</h2>
+  <p class="notice">開発検証専用です。履歴予想と確定結果を入力して集計します。外部データ取得・DB保存・本番予想は行いません。</p>
+
+  <label for="backtest-file">バックテストJSONファイル</label>
+  <input id="backtest-file" type="file" accept=".json,application/json">
+
+  <label for="backtest-json">バックテストデータJSON</label>
+  <textarea id="backtest-json" spellcheck="false" placeholder='{"mode":"dry_run","payload":{"records":[...]}}'></textarea>
+
+  <button id="run-backtest" type="button" disabled>履歴バックテストを実行（保存なし）</button>
+  <p id="backtest-note" class="note">owner認証とバックテストエンジンの安全状態を確認すると実行可能になります。</p>
+
+  <div class="categories" id="backtest-results">
+    <article class="pick"><h3>全体</h3><p id="bt-overall">未実行</p></article>
+    <article class="pick"><h3>的中率重視</h3><p id="bt-hit">未実行</p></article>
+    <article class="pick"><h3>バランス</h3><p id="bt-balance">未実行</p></article>
+    <article class="pick"><h3>中穴</h3><p id="bt-middle">未実行</p></article>
+    <article class="pick"><h3>大穴</h3><p id="bt-longshot">未実行</p></article>
+    <article class="pick"><h3>超大穴</h3><p id="bt-super">未実行</p></article>
+  </div>
+</section>
+
+<div id="owner-model-host"></div>
+<footer class="note">競輪AI・個人利用版 開発中<br>データ取得・予想・保存・表示を分離し、後から機能追加できる構造で開発しています。</footer>
+</main>
+
+<script src="prospective-tools-core.js"></script>
+<script src="model-web-response.js"></script>
+<script src="model-owner-preview.js"></script>
+<script>
+'use strict';
+
+const SUPABASE_URL = 'https://omamgmyyqnawlagbemcm.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_kmR4KI8H1WooocHTrrdtKw_b2v49Fp1';
+const STATUS_URL = SUPABASE_URL + '/functions/v1/predict-status';
+const OWNER_VERIFY_URL = SUPABASE_URL + '/functions/v1/predict-race';
+const DEV_ENGINE_URL = SUPABASE_URL + '/functions/v1/predict-engine-dev';
+const HISTORY_PIPELINE_URL = SUPABASE_URL + '/functions/v1/history-pipeline-dev';
+const BACKTEST_URL = SUPABASE_URL + '/functions/v1/backtest-engine-dev';
+const SESSION_KEY = 'keirin-ai-owner-session-v1';
+
+let currentSession = null;
+let currentProfile = null;
+let lastDryRunSnapshot = null;
+let loadedHistorySnapshot = null;
+let lastHistoryBacktestPayload = null;
+let historyPipelineReady = false;
+let historyDatasetRecords = [];
+let historyDatasetDuplicateCount = 0;
+
+const element = id => document.getElementById(id);
+function show(id, text, className = '') { const el = element(id); el.textContent = text; el.className = className; }
+
+function saveSession(data) {
+  const expiresIn = Number(data.expires_in || 3600);
+  currentSession = {
+    access_token: data.access_token,
+    refresh_token: data.refresh_token,
+    expires_at: Date.now() + expiresIn * 1000,
+    user: data.user
+  };
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify(currentSession));
+}
+
+function clearSession() {
+  ownerModelPreview.reset();
+  currentSession = null;
+  currentProfile = null;
+  sessionStorage.removeItem(SESSION_KEY);
+}
+
+async function refreshSessionIfNeeded() {
+  if (!currentSession) return null;
+  if (currentSession.access_token && currentSession.expires_at > Date.now() + 60000) return currentSession;
+  if (!currentSession.refresh_token) { clearSession(); return null; }
+
+  const response = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=refresh_token', {
+    method: 'POST',
+    headers: {apikey: SUPABASE_KEY, 'Content-Type': 'application/json'},
+    body: JSON.stringify({refresh_token: currentSession.refresh_token}),
+    cache: 'no-store', credentials: 'omit'
+  });
+  const data = await response.json();
+  if (!response.ok || !data.access_token) { clearSession(); return null; }
+  saveSession(data);
+  return currentSession;
+}
+
+async function loadProfile() {
+  const session = await refreshSessionIfNeeded();
+  if (!session || !session.user) throw new Error('有効なログイン情報がありません');
+  const response = await fetch(
+    SUPABASE_URL + '/rest/v1/user_profiles?user_id=eq.' + encodeURIComponent(session.user.id) + '&select=role,plan',
+    {method:'GET',headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+session.access_token,Accept:'application/json'},cache:'no-store',credentials:'omit'}
+  );
+  const rows = await response.json();
+  if (!response.ok) throw new Error('権限情報を取得できませんでした');
+  if (!Array.isArray(rows) || rows.length !== 1) throw new Error('ユーザープロフィールを確認できませんでした');
+  currentProfile = rows[0];
+  return currentProfile;
+}
+
+function showSignedOut(message = '') {
+  element('logged-out').classList.remove('hidden');
+  element('logged-in').classList.add('hidden');
+  show('owner-status','未ログイン','pending');
+  show('server-owner-status','未ログイン','pending');
+  show('dev-owner-status','未ログイン','pending');
+  show('dev-engine-status','未確認','pending');
+  show('history-pipeline-status','未確認','pending');
+  show('backtest-engine-status','未確認','pending');
+  show('dev-write-status','未確認','pending');
+  element('run-dry').disabled = true;
+  element('save-snapshot').disabled = true;
+  lastDryRunSnapshot = null;
+  loadedHistorySnapshot = null;
+  lastHistoryBacktestPayload = null;
+  historyPipelineReady = false;
+  element('run-history').disabled = true;
+  element('save-history').disabled = true;
+  element('run-backtest').disabled = true;
+  historyDatasetRecords = [];
+  historyDatasetDuplicateCount = 0;
+  if (element('history-dataset-json')) element('history-dataset-json').value = '';
+  if (element('dataset-record-count')) show('dataset-record-count','0件');
+  if (element('dataset-duplicate-count')) show('dataset-duplicate-count','0件');
+  if (element('save-dataset')) element('save-dataset').disabled = true;
+  if (element('run-dataset-backtest')) element('run-dataset-backtest').disabled = true;
+  show('run-dry-note','owner認証と開発AIの安全状態を確認すると実行可能になります。','note');
+  show('history-note','owner認証と履歴パイプラインの安全状態を確認すると実行可能になります。','note');
+  show('backtest-note','owner認証とバックテストエンジンの安全状態を確認すると実行可能になります。','note');
+  show('auth-message', message || 'パスワードはSupabaseへ直接送信され、このページのコードには保存しません。', message ? 'note error' : 'note');
+}
+
+function showSignedIn() {
+  element('logged-out').classList.add('hidden');
+  element('logged-in').classList.remove('hidden');
+  show('account-email', currentSession?.user?.email || '確認済みユーザー');
+  show('account-role', currentProfile.role);
+  show('account-plan', currentProfile.plan);
+  const isOwner = currentProfile.role === 'owner' && currentProfile.plan === 'owner';
+  if (isOwner) {
+    show('owner-status','認証済み（owner）','ok');
+    show('owner-message','Web側でowner権限を確認しました。','note ok');
+    show('server-owner-status','確認待ち','pending');
+    show('dev-owner-status','確認待ち','pending');
+  } else {
+    show('owner-status','ログイン済み・owner権限なし','error');
+    show('owner-message','このアカウントにはowner権限がありません。','note error');
+    show('server-owner-status','owner権限なし','error');
+    show('dev-owner-status','owner権限なし','error');
+  }
+}
+
+async function login() {
+  const button = element('login');
+  const email = element('email').value.trim();
+  const password = element('password').value;
+  if (!email || !password) { show('auth-message','メールアドレスとパスワードを入力してください。','note error'); return; }
+  button.disabled = true;
+  show('auth-message','ログインを確認しています…','note');
+  try {
+    const response = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=password', {
+      method:'POST',headers:{apikey:SUPABASE_KEY,'Content-Type':'application/json'},body:JSON.stringify({email,password}),cache:'no-store',credentials:'omit'
+    });
+    const data = await response.json();
+    if (!response.ok || !data.access_token) throw new Error('login_failed');
+    saveSession(data);
+    element('password').value = '';
+    await loadProfile();
+    showSignedIn();
+    await checkOwnerVerification();
+    await checkDevEngine();
+    await checkHistoryPipeline();
+    await checkBacktestEngine();
+  } catch (_) {
+    clearSession();
+    showSignedOut('ログインできませんでした。メールアドレスまたはパスワードを確認してください。');
+  } finally { button.disabled = false; }
+}
+
+async function logout() {
+  ownerModelPreview.reset();
+  const token = currentSession?.access_token;
+  try {
+    if (token) await fetch(SUPABASE_URL + '/auth/v1/logout',{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+token},cache:'no-store',credentials:'omit'});
+  } catch (_) {}
+  clearSession();
+  showSignedOut();
+}
+
+async function restoreLogin() {
+  const raw = sessionStorage.getItem(SESSION_KEY);
+  if (!raw) { showSignedOut(); return; }
+  try {
+    currentSession = JSON.parse(raw);
+    await loadProfile();
+    showSignedIn();
+    await checkOwnerVerification();
+    await checkDevEngine();
+    await checkHistoryPipeline();
+    await checkBacktestEngine();
+  } catch (_) {
+    clearSession();
+    showSignedOut('ログイン状態の有効期限が切れました。もう一度ログインしてください。');
+  }
+}
+
+async function authenticatedGet(url) {
+  const session = await refreshSessionIfNeeded();
+  if (!session?.access_token) throw new Error('session_missing');
+  return fetch(url,{method:'GET',headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+session.access_token,Accept:'application/json'},cache:'no-store',credentials:'omit'});
+}
+
+async function authenticatedPost(url, body) {
+  const session = await refreshSessionIfNeeded();
+  if (!session?.access_token) throw new Error('session_missing');
+  return fetch(url,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+session.access_token,Accept:'application/json','Content-Type':'application/json'},body:JSON.stringify(body),cache:'no-store',credentials:'omit'});
+}
+
+function clearCategory(id, text='候補なし') {
+  const box = element(id);
+  box.replaceChildren();
+  const p = document.createElement('p');
+  p.textContent = text;
+  box.appendChild(p);
+}
+
+function resetDryRunResults(text='未実行') {
+  for (const id of ['cat-hit','cat-balance','cat-middle','cat-longshot','cat-super']) clearCategory(id,text);
+  lastDryRunSnapshot = null;
+  if (element('save-snapshot')) element('save-snapshot').disabled = true;
+}
+
+function safeFilenamePart(value) {
+  return String(value ?? '').trim().replace(/[^0-9A-Za-z_-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60) || 'race';
+}
+
+function downloadJson(filename, value) {
+  const blob = new Blob([JSON.stringify(value,null,2)],{type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+
+function savePredictionSnapshot() {
+  if (!lastDryRunSnapshot || historyEvaluationScope(lastDryRunSnapshot) !== 'prospective' || Date.now() >= Date.parse(lastDryRunSnapshot.snapshot_eligibility.scheduled_start)) {
+    show('snapshot-note','検証用として保存できません。発走予定時刻より前に、未発走を確認してdry-runしてください。','note error');
+    return;
+  }
+  const race = lastDryRunSnapshot.race_data?.race || {};
+  const date = safeFilenamePart(race.date || 'date');
+  const venue = safeFilenamePart(race.venue || 'venue');
+  const no = safeFilenamePart(race.race_number || 'R');
+  downloadJson(`phase32-snapshot-${date}-${venue}-${no}.json`, lastDryRunSnapshot);
+  show('snapshot-note','予測スナップショットを端末へ保存しました。結果確定後の履歴化に使えます。','note ok');
+}
+
+function appendPick(box, pick) {
+  const item = document.createElement('div');
+  item.className = 'pick-item';
+
+  const combo = document.createElement('div');
+  combo.className = 'combo';
+  combo.textContent = `${pick.rank ?? '-'}位  ${pick.combo_key ?? '-'}`;
+  item.appendChild(combo);
+
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  const odds = pick.odds == null ? 'オッズ未確認' : `${Number(pick.odds).toFixed(1)}倍`;
+  const prob = pick.estimated_probability == null ? '推定率未算出' : `AI暫定推定率（未校正） ${(Number(pick.estimated_probability)*100).toFixed(3)}%`;
+  meta.textContent = `${odds} / ${prob}`;
+  item.appendChild(meta);
+
+  if (pick.reason) {
+    const reason = document.createElement('p');
+    reason.textContent = String(pick.reason);
+    item.appendChild(reason);
+  }
+  box.appendChild(item);
+}
+
+function renderCategory(id, category) {
+  const box = element(id);
+  box.replaceChildren();
+  const picks = Array.isArray(category?.picks) ? category.picks : [];
+  if (!picks.length) {
+    const p = document.createElement('p');
+    p.textContent = category?.category_note || '確認済みデータ内では候補なし';
+    box.appendChild(p);
+    return;
+  }
+  for (const pick of picks) appendPick(box, pick);
+  if (category?.category_note) {
+    const note = document.createElement('p');
+    note.className = 'note';
+    note.textContent = category.category_note;
+    box.appendChild(note);
+  }
+}
+
+function renderDryRun(data) {
+  const selected = data?.prediction?.selected_predictions;
+  const cats = selected?.categories || {};
+  renderCategory('cat-hit', cats.hit_priority);
+  renderCategory('cat-balance', cats.balance);
+  renderCategory('cat-middle', cats.middle);
+  renderCategory('cat-longshot', cats.longshot);
+  renderCategory('cat-super', cats.super_longshot);
+
+  const quality = data?.input_quality || {};
+  const count = Number(quality.trifecta_odds_count || 0);
+  const possible = Number(quality.possible_trifecta_count || 0);
+  const coverage = possible > 0 ? ((count / possible) * 100).toFixed(1) : '0.0';
+  const warnings = Array.isArray(quality.warnings) && quality.warnings.length ? ` / 注意: ${quality.warnings.join(' | ')}` : '';
+  show('input-quality', `入力品質：3連単オッズ ${count}/${possible}（${coverage}%）${warnings}`, warnings ? 'note pending' : 'note ok');
+
+  const total = data?.prediction?.validation?.total_picks ?? '-';
+  show('run-dry-note', `dry-run完了：${total}点 / 保存0件。未確認オッズでの補完なし。`, 'note ok');
+}
+
+function japanTodayString() {
+  return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+}
+
+function prospectiveEligibility(raceData, scheduledStart, confirmed, now = new Date()) {
+  const raceDate = raceData?.race?.date;
+  if (typeof raceDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(raceDate)) return {prospective:false,reason:'race_date_invalid'};
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(scheduledStart || '')) return {prospective:false,reason:'scheduled_start_required'};
+  const start = new Date(scheduledStart + '+09:00');
+  const local = new Date(start.getTime() + 9*60*60*1000);
+  if (!Number.isFinite(start.getTime()) || local.toISOString().slice(0,16) !== scheduledStart.slice(0,16) || scheduledStart.slice(0,10) !== raceDate) return {prospective:false,reason:'scheduled_start_invalid'};
+  if (confirmed !== true) return {prospective:false,reason:'prestart_confirmation_required'};
+  if (now.getTime() >= start.getTime()) return {prospective:false,reason:'scheduled_start_passed'};
+  return {prospective:true,reason:'before_scheduled_start',scheduled_start:start.toISOString(),prestart_confirmed:true,clock_source:'client_unverified'};
+}
+
+// A roster is authoritative; absent legacy training input defaults to seven cars.
+function raceCarNumbers(players) {
+  if (!Array.isArray(players) || ![7,9].includes(players.length)) return null;
+  const cars = players.map(p => p?.car_number);
+  return new Set(cars).size === players.length && cars.every(n => Number.isInteger(n) && n >= 1 && n <= players.length) ? cars : null;
+}
+
+function fullProbabilityTableValid(scores, cars = [1,2,3,4,5,6,7]) {
+  if (!cars || !raceCarNumbers(cars.map(car_number => ({car_number})))) return false;
+  const expected = new Set();
+  for (const a of cars) for (const b of cars) for (const c of cars) {
+    if (a !== b && a !== c && b !== c) expected.add(`${a}-${b}-${c}`);
+  }
+  if (!Array.isArray(scores) || scores.length !== expected.size) return false;
+  const keys = scores.map(x => x?.combo_key);
+  if (!keys.every(key => expected.has(key)) || new Set(keys).size !== expected.size) return false;
+  if (!scores.every(x => typeof x?.estimated_probability === 'number' && Number.isFinite(x.estimated_probability) && x.estimated_probability >= 0 && x.estimated_probability <= 1)) return false;
+  return Math.abs(scores.reduce((sum,x) => sum+x.estimated_probability,0)-1) <= 1e-6;
+}
+
+function raceConditionsIssue(input) {
+  if (!input || !Object.prototype.hasOwnProperty.call(input, 'race_conditions')) return null;
+  const check = globalThis.ProspectiveTools?.requireStandardConditions;
+  if (typeof check !== 'function') return 'レース状態の確認機能を読み込めません。再読み込みしてください。';
+  try { check(input); return null; }
+  catch (_) { return '欠車・中止または不明なレース状態のため、通常レースとして処理できません。'; }
+}
+
+function trainingReadiness(record) {
+  const training = record?.training_input;
+  const conditionIssue = raceConditionsIssue(training);
+  if (conditionIssue) return conditionIssue;
+  const meta = record?.metadata;
+  if (meta?.evaluation_scope !== 'prospective') return '再現・旧データのため学習対象外';
+  if (training?.schema_version !== 'keirin-training-input-v1') return '学習用入力が含まれていません';
+  if (meta?.training_eligibility?.supervised_training !== true || training?.evaluation_scope !== 'prospective') return '学習対象として確認できません';
+  const captured = Date.parse(training?.captured_at);
+  const predicted = Date.parse(record?.prediction_timestamp);
+  const settled = Date.parse(meta?.result_timestamp);
+  if (!Number.isFinite(captured) || captured !== predicted || !Number.isFinite(settled) || predicted >= settled) return '予測・結果時刻を確認してください';
+  const cars = raceCarNumbers(training.players);
+  if (!cars || !training.players.every(p => ['逃','両','追'].includes(p?.style))) return '7車・9車の車番または脚質を確認してください';
+  if (!fullProbabilityTableValid(record?.trifecta_scores, cars)) return '出走車数に応じた全組合せの確率が不足しています';
+  if (meta?.engine_version !== 'phase32-hit-priority-all210-v1') return '比較対象の予測エンジンが一致しません';
+  return null;
+}
+
+async function runRealDryRun() {
+  const button = element('run-dry');
+  if (button.disabled || !currentSession) return;
+
+  let parsed;
+  try {
+    const raw = element('race-json').value.trim();
+    if (!raw) throw new Error('empty');
+    parsed = JSON.parse(raw);
+  } catch (_) {
+    show('run-dry-note','JSON形式を確認できません。ファイルを選ぶか、正しいJSONを貼り付けてください。','note error');
+    return;
+  }
+
+  const raceData = parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.race_data ? parsed.race_data : parsed;
+  const conditionIssue = raceConditionsIssue(raceData);
+  if (conditionIssue) {
+    resetDryRunResults('未実行');
+    show('run-dry-note',conditionIssue,'note error');
+    return;
+  }
+  const scheduledStart = element('scheduled-start').value;
+  const confirmed = element('prestart-confirmed').checked;
+  const inputAtRequest = element('race-json').value;
+  button.disabled = true;
+  resetDryRunResults('実行中…');
+  show('run-dry-note','Phase32で実レースdry-runを実行しています。DB保存は行いません。','note pending');
+  show('input-quality','入力品質：確認中','note');
+
+  try {
+    const response = await authenticatedPost(DEV_ENGINE_URL,{mode:'dry_run',race_data:raceData});
+    let data = null;
+    try { data = await response.json(); } catch (_) {}
+
+    if (response.status === 401) {
+      clearSession();
+      showSignedOut('ログイン状態を再確認できませんでした。もう一度ログインしてください。');
+      resetDryRunResults('未実行');
+      return;
+    }
+
+    if (!response.ok || data?.success !== true) {
+      const details = Array.isArray(data?.validation_errors) ? data.validation_errors.join(' / ') : (data?.error || `HTTP ${response.status}`);
+      show('run-dry-note',`dry-runできませんでした：${details}`,'note error');
+      resetDryRunResults('入力またはサーバー状態を確認してください');
+      return;
+    }
+
+    const safe =
+      data?.prediction_generated === true &&
+      data?.saved === false &&
+      data?.db_write_enabled === false &&
+      data?.production_prediction_enabled === false &&
+      fullProbabilityTableValid(data?.prediction?.trifecta_scores, raceCarNumbers(raceData?.players)) &&
+      data?.prediction?.validation?.no_fallback_fill === true &&
+      data?.prediction?.validation?.max_three_per_category === true &&
+      data?.prediction?.validation?.unique_picks === data?.prediction?.validation?.total_picks &&
+      data?.probability_calibration_status === 'uncalibrated' &&
+      data?.monetary_ev_enabled === false &&
+      data?.odds_band_ranking === 'estimated_probability_only';
+
+    if (!safe) {
+      show('run-dry-note','安全条件を確認できないため結果表示を停止しました。DB保存状態を確認してください。','note error');
+      resetDryRunResults('安全確認エラー');
+      return;
+    }
+
+    const capturedAt = new Date();
+    const inputUnchanged = element('race-json').value === inputAtRequest && element('scheduled-start').value === scheduledStart && element('prestart-confirmed').checked === confirmed;
+    const eligibility = inputUnchanged ? prospectiveEligibility(raceData, scheduledStart, confirmed, capturedAt) : {prospective:false,reason:'input_changed_during_request'};
+    lastDryRunSnapshot = {
+      schema_version:'prediction-snapshot-v1',
+      captured_at:capturedAt.toISOString(),
+      validation_mode:'prospective-only',
+      snapshot_eligibility:eligibility,
+      race_data:raceData,
+      engine_response:data
+    };
+    element('save-snapshot').disabled = !eligibility.prospective;
+    if (eligibility.prospective) {
+      show('snapshot-note','dry-run成功。入力した発走予定時刻より前です。検証用スナップショットを保存できます。','note ok');
+    } else {
+      show('snapshot-note','検証用の保存には、レース日と一致する未来の発走予定時刻と未発走の確認が必要です。入力後にdry-runを再実行してください。','note pending');
+    }
+    renderDryRun(data);
+  } catch (_) {
+    show('run-dry-note','通信または実行エラーでdry-runできませんでした。','note error');
+    resetDryRunResults('実行失敗');
+  } finally {
+    const ready = currentSession && element('dev-engine-status').classList.contains('ok');
+    button.disabled = !ready;
+  }
+}
+
+async function loadRaceFile(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  if (file.size > 2_000_000) {
+    show('run-dry-note','JSONファイルが大きすぎます。2MB以下のファイルを使用してください。','note error');
+    event.target.value = '';
+    return;
+  }
+  try {
+    const text = await file.text();
+    JSON.parse(text);
+    element('race-json').value = text;
+
+    // 新しい入力に切り替えた時、前回dry-runの結果を残さない。
+    lastDryRunSnapshot = null;
+    element('prestart-confirmed').checked = false;
+    element('scheduled-start').value = '';
+    element('save-snapshot').disabled = true;
+    resetDryRunResults('未実行');
+    show('input-quality','入力品質：未実行','note');
+    show('snapshot-note','dry-run成功後に、予測時点の入力・全確率・15点を端末へ保存できます。DBには保存しません。','note');
+    show('run-dry-note',`JSONファイルを読み込みました：${file.name}`,'note ok');
+  } catch (_) {
+    show('run-dry-note','選択したファイルは有効なJSONとして読み込めませんでした。','note error');
+  }
+}
+
+async function checkOwnerVerification() {
+  if (!currentSession) { show('server-owner-status','未ログイン','pending'); return false; }
+  show('server-owner-status','確認中…','pending');
+  try {
+    const response = await authenticatedGet(OWNER_VERIFY_URL);
+    let data = null; try { data = await response.json(); } catch (_) {}
+    if (response.status === 401) { clearSession(); showSignedOut('ログイン状態を再確認できませんでした。もう一度ログインしてください。'); return false; }
+    if (!response.ok || data?.success !== true || data?.authenticated !== true || data?.owner !== true || data?.role !== 'owner' || data?.plan !== 'owner') {
+      show('server-owner-status','認証できません','error'); return false;
+    }
+    show('server-owner-status','認証済み（owner）','ok');
+    show('engine-status', data.prediction_engine_connected ? '接続済み' : '未接続', data.prediction_engine_connected ? 'ok' : 'pending');
+    show('write-status', data.write_mode === 'locked_until_engine' ? 'ロック中（安全）' : '状態変更あり・要確認', data.write_mode === 'locked_until_engine' ? 'pending' : 'error');
+    return true;
+  } catch (_) { show('server-owner-status','確認失敗','error'); return false; }
+}
+
+async function checkDevEngine() {
+  if (!currentSession) { show('dev-owner-status','未ログイン','pending'); show('dev-engine-status','未確認','pending'); return false; }
+  show('dev-owner-status','確認中…','pending');
+  show('dev-engine-status','確認中…','pending');
+  try {
+    const response = await authenticatedGet(DEV_ENGINE_URL);
+    let data = null; try { data = await response.json(); } catch (_) {}
+    if (!response.ok || data?.success !== true || data?.owner !== true) {
+      show('dev-owner-status','認証できません','error');
+      show('dev-engine-status','利用不可','error');
+      element('run-dry').disabled = true;
+      return false;
+    }
+    show('dev-owner-status','認証済み（owner）','ok');
+    const dryReady = data.dry_run_enabled === true && data.production_prediction_enabled === false && data.db_write_enabled === false;
+    const versionReady =
+      data.architecture?.engine === 'phase32-hit-priority-all210-v1' &&
+      data.hit_priority_scope === 'all_combinations' &&
+      data.odds_band_scope === 'confirmed_odds_only' &&
+      data.odds_band_ranking === 'estimated_probability_only' &&
+      data.probability_calibration_status === 'uncalibrated' &&
+      data.monetary_ev_enabled === false &&
+      data.odds_sanitization_policy === 'kdreams_9999_9_unbet_as_unavailable';
+    show('dev-engine-status', dryReady && versionReady ? '準備済み（v16・校正前EV無効）' : dryReady ? 'dry-run準備済み・版要確認' : '状態要確認', dryReady && versionReady ? 'ok' : dryReady ? 'pending' : 'error');
+    show('data-source-status', data.data_source_connected ? '接続済み' : '未接続（JKA回答待ち）', data.data_source_connected ? 'ok' : 'pending');
+    if (data.db_write_enabled === false) { show('dev-write-status','OFF（保存なし）','ok'); show('write-status','DB書き込みOFF（安全）','pending'); } else { show('dev-write-status','状態要確認','error'); }
+    element('run-dry').disabled = !(dryReady && versionReady);
+    return dryReady && versionReady;
+  } catch (_) {
+    show('dev-owner-status','確認失敗','error');
+    show('dev-engine-status','確認失敗','error');
+    element('run-dry').disabled = true;
+    return false;
+  }
+}
+
+function validOutcomeCombo(value, cars = [1,2,3,4,5,6,7]) {
+  if (typeof value !== 'string' || !/^[1-9]-[1-9]-[1-9]$/.test(value) || !Array.isArray(cars)) return false;
+  const outcome = value.split('-').map(Number);
+  return new Set(outcome).size === 3 && outcome.every(n => cars.includes(n));
+}
+
+function historyEvaluationScope(snapshot) {
+  const prospective = snapshot?.validation_mode === 'prospective-only' &&
+    snapshot?.snapshot_eligibility?.prospective === true &&
+    snapshot?.snapshot_eligibility?.reason === 'before_scheduled_start' &&
+    snapshot?.snapshot_eligibility?.prestart_confirmed === true &&
+    Number.isFinite(Date.parse(snapshot?.captured_at)) &&
+    Date.parse(snapshot.captured_at) < Date.parse(snapshot?.snapshot_eligibility?.scheduled_start);
+  return prospective ? 'prospective' : 'replay_or_legacy';
+}
+
+function updateHistoryRunState() {
+  const canRun = Boolean(currentSession && historyPipelineReady && loadedHistorySnapshot);
+  element('run-history').disabled = !canRun;
+}
+
+async function checkHistoryPipeline() {
+  if (!currentSession) {
+    historyPipelineReady = false;
+    show('history-pipeline-status','未ログイン','pending');
+    updateHistoryRunState();
+    return false;
+  }
+  show('history-pipeline-status','確認中…','pending');
+  try {
+    const response = await authenticatedGet(HISTORY_PIPELINE_URL);
+    let data = null; try { data = await response.json(); } catch (_) {}
+    const ready = response.ok && data?.success === true && data?.owner === true && data?.dry_run_enabled === true && data?.db_write_enabled === false && data?.external_fetch_enabled === false && data?.production_prediction_enabled === false;
+    historyPipelineReady = ready;
+    show('history-pipeline-status', ready ? '準備済み（保存なし）' : '状態要確認', ready ? 'ok' : 'error');
+    show('history-note', ready ? '履歴生成とバックテストを安全なdry-runで実行できます。' : '履歴パイプラインの安全状態を確認してください。', ready ? 'note ok' : 'note error');
+    updateHistoryRunState();
+    return ready;
+  } catch (_) {
+    historyPipelineReady = false;
+    show('history-pipeline-status','確認失敗','error');
+    show('history-note','履歴パイプラインへ接続できませんでした。','note error');
+    updateHistoryRunState();
+    return false;
+  }
+}
+
+async function loadHistorySnapshotFile(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  if (file.size > 5_000_000) {
+    show('history-snapshot-note','JSONファイルが大きすぎます。5MB以下のファイルを使用してください。','note error');
+    event.target.value = '';
+    return;
+  }
+  try {
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+    const race = parsed?.race_data?.race;
+    const er = parsed?.engine_response;
+    const prediction = er?.prediction;
+    const scores = prediction?.trifecta_scores;
+    const cats = prediction?.selected_predictions?.categories;
+    const captured = Date.parse(parsed?.captured_at);
+
+    const categoryKeys = ['hit_priority','balance','middle','longshot','super_longshot'];
+    const scoreKeys = Array.isArray(scores) ? scores.map(x => x?.combo_key) : [];
+    const scoreSet = new Set(scoreKeys);
+    const cars = raceCarNumbers(parsed?.race_data?.players);
+
+    const categoriesValid = cats && categoryKeys.every(key => {
+      const picks = cats[key]?.picks;
+      if (!Array.isArray(picks) || picks.length > 3) return false;
+      const keys = picks.map(x => x?.combo_key);
+      return keys.every(key => scoreSet.has(key)) && new Set(keys).size === keys.length;
+    });
+
+    const snapshotSafe =
+      parsed?.schema_version === 'prediction-snapshot-v1' &&
+      !raceConditionsIssue(parsed?.race_data) &&
+      race &&
+      Number.isFinite(captured) &&
+      er?.success === true &&
+      er?.saved === false &&
+      er?.db_write_enabled === false &&
+      er?.production_prediction_enabled === false &&
+      er?.architecture?.engine === 'phase32-hit-priority-all210-v1' &&
+      cars &&
+      fullProbabilityTableValid(scores, cars) &&
+      categoriesValid;
+
+    if (!snapshotSafe) throw new Error('snapshot_invalid');
+
+    show('training-readiness','学習用データ：未生成','note');
+    loadedHistorySnapshot = parsed;
+    lastHistoryBacktestPayload = null;
+    element('save-history').disabled = true;
+    element('history-json').value = '';
+    show('history-backtest-summary','バックテスト：未実行','note');
+
+    const localCaptured = new Date(parsed.captured_at).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'});
+    const evaluationScope = historyEvaluationScope(parsed);
+    const scopeLabel = evaluationScope === 'prospective' ? '前向き検証' : '再現・旧データ';
+    show(
+      'history-snapshot-note',
+      `読み込み済み：${file.name} / ${race.date ?? '-'} ${race.venue ?? '-'} ${race.race_number ?? '-'}R / スナップショット時刻 ${localCaptured}（日本時間） / ${scopeLabel} / 全${scores.length}通りの確率確認済み`,
+      evaluationScope === 'prospective' ? 'note ok' : 'note pending'
+    );
+    updateHistoryRunState();
+  } catch (_) {
+    loadedHistorySnapshot = null;
+    lastHistoryBacktestPayload = null;
+    element('save-history').disabled = true;
+    element('history-json').value = '';
+    show('history-snapshot-note','現行v16互換の安全な予測スナップショットとして確認できませんでした。7車・9車の全組合せ確率・保存OFF・本番予想OFFを確認してください。','note error');
+    updateHistoryRunState();
+  }
+}
+
+async function runHistoryPipeline() {
+  const button = element('run-history');
+  if (button.disabled || !currentSession || !loadedHistorySnapshot) return;
+
+  const outcomeCombo = element('result-combo').value.trim();
+  const settlementOdds = Number(element('result-odds').value);
+  const resultLocal = element('result-time').value;
+
+  if (!validOutcomeCombo(outcomeCombo, raceCarNumbers(loadedHistorySnapshot.race_data?.players))) {
+    show('history-note','確定3連単は「1-3-2」の形式で、異なる3車を入力してください。','note error');
+    return;
+  }
+  if (!Number.isFinite(settlementOdds) || settlementOdds <= 0) {
+    show('history-note','確定オッズは0より大きい数値を入力してください。','note error');
+    return;
+  }
+  const evaluationScope = historyEvaluationScope(loadedHistorySnapshot);
+  const capturedAt = new Date(loadedHistorySnapshot.captured_at);
+  if (Number.isNaN(capturedAt.getTime())) {
+    show('history-note','予測スナップショットの保存時刻を確認できません。','note error');
+    return;
+  }
+
+  let resultDate = null;
+  if (resultLocal) {
+    resultDate = new Date(resultLocal);
+    if (Number.isNaN(resultDate.getTime())) {
+      show('history-note','結果確定時刻を確認できません。','note error');
+      return;
+    }
+  } else if (evaluationScope === 'prospective') {
+    show('history-note','前向き検証では結果確定時刻を入力してください。','note error');
+    return;
+  }
+
+  if (evaluationScope === 'prospective' && resultDate.getTime() <= capturedAt.getTime()) {
+    show('history-note','前向き検証では、結果確定時刻を予測スナップショットの保存時刻より後にしてください。','note error');
+    return;
+  }
+
+  if (resultDate && resultDate.getTime() > Date.now()) {
+    show('history-note','結果確定時刻に未来の時刻は指定できません。','note error');
+    return;
+  }
+  if (evaluationScope === 'prospective' && resultDate.getTime() < Date.parse(loadedHistorySnapshot.snapshot_eligibility.scheduled_start)) {
+    show('history-note','結果確定時刻は発走予定時刻以降を指定してください。','note error');
+    return;
+  }
+  show('training-readiness','学習用データ：確認中','note');
+  button.disabled = true;
+  element('save-history').disabled = true;
+  show('history-note','履歴生成 → バックテストを実行しています。DB保存は行いません。','note pending');
+  show('history-backtest-summary','バックテスト：実行中…','note pending');
+
+  const body = {
+    mode:'dry_run',
+    evaluation_scope:evaluationScope,
+    require_prospective:evaluationScope === 'prospective',
+    snapshot:loadedHistorySnapshot,
+    settlement:{
+      outcome_combo:outcomeCombo,
+      settlement_odds:settlementOdds,
+      result_timestamp:resultDate ? resultDate.toISOString() : null,
+      result_time_unknown:resultDate === null
+    }
+  };
+
+  try {
+    const response = await authenticatedPost(HISTORY_PIPELINE_URL, body);
+    let data = null; try { data = await response.json(); } catch (_) {}
+    if (response.status === 401) {
+      clearSession();
+      showSignedOut('ログイン状態を再確認できませんでした。もう一度ログインしてください。');
+      return;
+    }
+    const safe = response.ok && data?.success === true && data?.saved === false && data?.db_write_enabled === false && data?.external_fetch_enabled === false && data?.production_prediction_enabled === false && data?.history_record && data?.backtest_result;
+    if (!safe) {
+      const details = Array.isArray(data?.validation_errors) ? data.validation_errors.join(' / ') : (data?.error || `HTTP ${response.status}`);
+      show('history-note',`履歴生成できませんでした：${details}`,'note error');
+      show('training-readiness','学習用データ：未生成','note');
+      show('history-backtest-summary','バックテスト：未実行','note error');
+      return;
+    }
+
+    const backtestPayload = data.backtest_request?.mode === 'dry_run' && data.backtest_request?.payload
+      ? data.backtest_request
+      : {mode:'dry_run',payload:{records:[data.history_record]}};
+    const readinessIssue = trainingReadiness(data.history_record);
+    show('training-readiness', readinessIssue ? `学習用データ：${readinessIssue}` : '学習用データ：基本項目を確認しました。履歴JSONを保存してください。最終的な採否は比較処理で判定します。', readinessIssue ? 'note pending' : 'note ok');
+    lastHistoryBacktestPayload = backtestPayload;
+    element('history-json').value = JSON.stringify(backtestPayload,null,2);
+    element('backtest-json').value = JSON.stringify(backtestPayload,null,2);
+    element('save-history').disabled = false;
+    const scopeLabel = data?.evaluation_scope === 'prospective' ? '前向き検証' : '再現・旧データ';
+    show('history-note',`履歴JSONを生成しました（${scopeLabel}）。DB保存0件のまま、同じ履歴でバックテストまで完了しています。`,'note ok');
+    renderBacktestResult({result:data.backtest_result});
+    const bt = data.backtest_result;
+    const roi = bt?.selection_performance?.roi_multiple;
+    show('history-backtest-summary',`バックテスト：${bt?.records ?? 0}レース / 買い目 ${bt?.selection_performance?.picks ?? 0}点 / 的中 ${bt?.selection_performance?.hits ?? 0} / ROI ${roi == null ? '-' : Number(roi).toFixed(3)+'倍'}`,'note ok');
+  } catch (_) {
+    show('training-readiness','学習用データ：未生成（実行失敗）','note error');
+    show('history-note','通信または実行エラーで履歴生成できませんでした。','note error');
+    show('history-backtest-summary','バックテスト：実行失敗','note error');
+  } finally {
+    updateHistoryRunState();
+  }
+}
+
+function saveHistoryJson() {
+  if (!lastHistoryBacktestPayload) return;
+  const race = loadedHistorySnapshot?.race_data?.race || {};
+  const date = safeFilenamePart(race.date || 'date');
+  const venue = safeFilenamePart(race.venue || 'venue');
+  const no = safeFilenamePart(race.race_number || 'R');
+  downloadJson(`backtest-history-${date}-${venue}-${no}.json`, lastHistoryBacktestPayload);
+  show('history-note','履歴JSONを端末へ保存しました。backtest-engine-devへそのまま読み込めます。','note ok');
+}
+
+
+function normalizeDatasetRecord(record) {
+  if (!record || typeof record !== 'object' || Array.isArray(record)) return null;
+  if (raceConditionsIssue(record.training_input)) return null;
+  const cars = record.training_input == null ? [1,2,3,4,5,6,7] : raceCarNumbers(record.training_input.players);
+  if (!validOutcomeCombo(record.outcome_combo, cars)) return null;
+  if (!Number.isFinite(Number(record.settlement_odds)) || Number(record.settlement_odds) <= 0) return null;
+  if (!record.selected_predictions?.categories || !Array.isArray(record.trifecta_scores)) return null;
+  if (!fullProbabilityTableValid(record.trifecta_scores, cars)) return null;
+  const scoreKeys = new Set(record.trifecta_scores.map(x => x.combo_key));
+  if (!scoreKeys.has(record.outcome_combo)) return null;
+  return record;
+}
+
+function recordsFromHistoryJson(parsed) {
+  if (!parsed || typeof parsed !== 'object') return [];
+  if (parsed?.mode === 'dry_run' && Array.isArray(parsed?.payload?.records)) return parsed.payload.records;
+  if (Array.isArray(parsed?.records)) return parsed.records;
+  if (parsed?.history_record) return [parsed.history_record];
+  if (parsed?.selected_predictions && Array.isArray(parsed?.trifecta_scores)) return [parsed];
+  return [];
+}
+
+function datasetRecordKey(record) {
+  return [record?.race_id ?? '', record?.prediction_timestamp ?? '', record?.outcome_combo ?? ''].join('|');
+}
+
+const COLLECTION_MIN_DISTINCT_PREDICTION_TIMES = 5;
+
+function timezoneAwarePredictionTimestamp(value) {
+  if (typeof value !== 'string' || !/(Z|[+-]\d{2}:\d{2})$/.test(value)) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function fallbackProspectiveCollectionStatus(records) {
+  const latestByRace = new Map();
+  for (const record of Array.isArray(records) ? records : []) {
+    const metadata = record?.metadata || {};
+    const eligibility = metadata?.training_eligibility || {};
+    const training = record?.training_input;
+    const eligible = metadata?.evaluation_scope === 'prospective' &&
+      metadata?.temporal_order === 'prediction_before_result' &&
+      eligibility?.supervised_training === true &&
+      training && typeof training === 'object' && !Array.isArray(training) &&
+      !raceConditionsIssue(training) &&
+      training?.schema_version === 'keirin-training-input-v1' &&
+      training?.evaluation_scope === 'prospective' &&
+      Array.isArray(training?.players) && training.players.length >= 4 &&
+      validOutcomeCombo(record?.outcome_combo, raceCarNumbers(training.players));
+    if (!eligible) continue;
+    const raceId = String(record?.race_id || '').trim();
+    if (!raceId) continue;
+    const candidateTime = timezoneAwarePredictionTimestamp(record?.prediction_timestamp);
+    const candidateKey = candidateTime == null ? -Infinity : candidateTime;
+    const current = latestByRace.get(raceId);
+    const currentTime = current ? timezoneAwarePredictionTimestamp(current?.prediction_timestamp) : null;
+    const currentKey = currentTime == null ? -Infinity : currentTime;
+    if (!current || candidateKey > currentKey) latestByRace.set(raceId, record);
+  }
+
+  const distinctTimes = new Set();
+  for (const record of latestByRace.values()) {
+    const predicted = timezoneAwarePredictionTimestamp(record?.prediction_timestamp);
+    if (predicted != null) distinctTimes.add(predicted);
+  }
+  const distinctCount = distinctTimes.size;
+  return {
+    eligible_unique_races: latestByRace.size,
+    distinct_prediction_times: distinctCount,
+    minimum_distinct_prediction_times: COLLECTION_MIN_DISTINCT_PREDICTION_TIMES,
+    remaining_distinct_prediction_times: Math.max(0, COLLECTION_MIN_DISTINCT_PREDICTION_TIMES - distinctCount),
+    collection_threshold_met: distinctCount >= COLLECTION_MIN_DISTINCT_PREDICTION_TIMES,
+    chronological_evaluation_may_run: false,
+    blocked_reason: 'strict_validator_unavailable',
+    validation_source: 'fallback_count_only'
+  };
+}
+
+function prospectiveCollectionStatus(records) {
+  const strict = globalThis.ProspectiveTools?.collectionStatus;
+  if (typeof strict !== 'function') return fallbackProspectiveCollectionStatus(records);
+  return {...strict(Array.isArray(records) ? records : []), validation_source:'prospective-tools-core'};
+}
+
+function refreshHistoryDatasetView(message = '') {
+  const payload = {mode:'dry_run',payload:{records:historyDatasetRecords}};
+  const text = historyDatasetRecords.length ? JSON.stringify(payload,null,2) : '';
+  element('history-dataset-json').value = text;
+  show('dataset-record-count',`${historyDatasetRecords.length}件`);
+  show('dataset-duplicate-count',`${historyDatasetDuplicateCount}件`);
+  const collection = prospectiveCollectionStatus(historyDatasetRecords);
+  const strictReady = collection.chronological_evaluation_may_run === true;
+  const timeMinimum = collection.collection_threshold_met === true;
+  show('dataset-prospective-count',`${collection.distinct_prediction_times}/${collection.minimum_distinct_prediction_times}件`);
+  show(
+    'dataset-prospective-remaining',
+    strictReady ? '時系列分割 準備可' : timeMinimum ? '5時点到達・分割未達' : `あと${collection.remaining_distinct_prediction_times}時点`,
+    strictReady ? 'ok' : 'pending'
+  );
+  const readinessDetail = collection.validation_source === 'fallback_count_only'
+    ? '厳密な前向き検証器を読み込めませんでした。件数表示は参考値です。'
+    : strictReady
+      ? '厳密な前向き検証で時系列分割の技術条件を確認しました。統計的な十分性・モデル優位性・収益性を意味しません。'
+      : timeMinimum
+        ? `5つの異なる適格予測時刻には到達していますが、時系列分割は未達です（${collection.blocked_reason || '要追加データ'}）。`
+        : `厳密な前向き検証で、最低5つの異なる適格予測時刻まであと${collection.remaining_distinct_prediction_times}時点です。`;
+  show('dataset-collection-detail',readinessDetail,strictReady ? 'note ok' : timeMinimum ? 'note pending' : 'note');
+  element('save-dataset').disabled = historyDatasetRecords.length === 0;
+  const backtestReady = currentSession && element('backtest-engine-status').classList.contains('ok');
+  element('run-dataset-backtest').disabled = !(historyDatasetRecords.length && backtestReady);
+  const bytes = text ? new Blob([text]).size : 0;
+  const size = bytes < 1024*1024 ? `${Math.ceil(bytes/1024)}KB` : `${(bytes/1024/1024).toFixed(2)}MB`;
+  show('history-dataset-note', message || (historyDatasetRecords.length ? `統合済み：${historyDatasetRecords.length}レース / JSON ${size} / DB保存なし` : 'backtest-history-...json を複数選択してください。既存データセットJSONも追加できます。'), historyDatasetRecords.length ? 'note ok' : 'note');
+}
+
+async function loadHistoryDatasetFiles(event) {
+  const files = Array.from(event.target.files || []);
+  if (!files.length) return;
+  let added = 0, duplicates = 0, invalid = 0;
+  const existing = new Set(historyDatasetRecords.map(datasetRecordKey));
+  for (const file of files) {
+    try {
+      if (file.size > 10_000_000) { invalid++; continue; }
+      const parsed = JSON.parse(await file.text());
+      const records = recordsFromHistoryJson(parsed);
+      if (!records.length) { invalid++; continue; }
+      for (const candidate of records) {
+        const record = normalizeDatasetRecord(candidate);
+        if (!record) { invalid++; continue; }
+        const key = datasetRecordKey(record);
+        if (existing.has(key)) { duplicates++; continue; }
+        if (historyDatasetRecords.length >= 5000) { invalid++; continue; }
+        existing.add(key);
+        historyDatasetRecords.push(record);
+        added++;
+      }
+    } catch (_) { invalid++; }
+  }
+  historyDatasetDuplicateCount += duplicates;
+  const parts = [`追加 ${added}件`];
+  if (duplicates) parts.push(`重複除外 ${duplicates}件`);
+  if (invalid) parts.push(`無効/上限 ${invalid}件`);
+  refreshHistoryDatasetView(parts.join(' / ') + ` / 合計 ${historyDatasetRecords.length}件 / DB保存なし`);
+  event.target.value = '';
+}
+
+function saveHistoryDataset() {
+  if (!historyDatasetRecords.length) return;
+  const payload = {mode:'dry_run',payload:{records:historyDatasetRecords}};
+  const date = new Date().toISOString().slice(0,10);
+  downloadJson(`backtest-history-dataset-${date}-${historyDatasetRecords.length}races.json`, payload);
+  refreshHistoryDatasetView(`統合履歴JSONを保存しました：${historyDatasetRecords.length}レース / DB保存なし`);
+}
+
+async function runHistoryDatasetBacktest() {
+  if (!historyDatasetRecords.length) return;
+  const payload = {mode:'dry_run',payload:{records:historyDatasetRecords}};
+  element('backtest-json').value = JSON.stringify(payload,null,2);
+  resetBacktestResults('未実行');
+  const ready = currentSession && element('backtest-engine-status').classList.contains('ok');
+  if (!ready) {
+    show('history-dataset-note','バックテストエンジンが準備済みになるまで実行できません。接続状態を再確認してください。','note error');
+    return;
+  }
+  element('run-backtest').disabled = false;
+  await runBacktestDryRun();
+  refreshHistoryDatasetView(`一括バックテスト実行済み：${historyDatasetRecords.length}レース / DB保存なし`);
+}
+
+async function checkBacktestEngine() {
+  if (!currentSession) {
+    show('backtest-engine-status','未ログイン','pending');
+    element('run-backtest').disabled = true;
+    if (element('run-dataset-backtest')) element('run-dataset-backtest').disabled = true;
+    return false;
+  }
+  show('backtest-engine-status','確認中…','pending');
+  try {
+    const response = await authenticatedGet(BACKTEST_URL);
+    let data = null; try { data = await response.json(); } catch (_) {}
+    const ready = response.ok && data?.success === true && data?.owner === true && data?.dry_run_enabled === true && data?.db_write_enabled === false && data?.production_prediction_enabled === false && data?.engine_version === 'backtest-v3-settlement-aware-multiclass';
+    show('backtest-engine-status', ready ? '準備済み（保存なし）' : '状態要確認', ready ? 'ok' : 'error');
+    element('run-backtest').disabled = !ready;
+    if (element('run-dataset-backtest')) element('run-dataset-backtest').disabled = !(ready && historyDatasetRecords.length);
+    return ready;
+  } catch (_) {
+    show('backtest-engine-status','確認失敗','error');
+    element('run-backtest').disabled = true;
+    return false;
+  }
+}
+
+function formatPercent(value) {
+  return value == null ? '-' : `${(Number(value) * 100).toFixed(2)}%`;
+}
+
+function formatMetricSummary(summary, races = null, raceHitRate = null) {
+  if (!summary) return 'データなし';
+  const parts = [
+    `買い目 ${summary.picks ?? 0}点`,
+    `的中 ${summary.hits ?? 0}`,
+    `買い目的中率 ${formatPercent(summary.hit_rate)}`,
+    `ROI ${summary.roi_multiple == null ? '-' : Number(summary.roi_multiple).toFixed(3)+'倍'}`
+  ];
+  if (races != null) parts.unshift(`レース ${races}`);
+  if (raceHitRate != null) parts.splice(2,0,`レース的中率 ${formatPercent(raceHitRate)}`);
+  return parts.join(' / ');
+}
+
+function resetBacktestResults(text='未実行') {
+  for (const id of ['bt-overall','bt-hit','bt-balance','bt-middle','bt-longshot','bt-super']) show(id,text);
+}
+
+function renderBacktestResult(data) {
+  const result = data?.result;
+  if (!result) { resetBacktestResults('結果なし'); return; }
+  const pq = result.probability_quality || {};
+  const selectionText = formatMetricSummary(result.selection_performance, result.records);
+  const scope = result.evaluation_scope_counts || {};
+  const scopeText = `前向き ${scope.prospective ?? 0} / 再現・旧 ${Number(scope.replay_or_legacy || 0) + Number(scope.legacy_unknown || 0)}`;
+  const probabilityText = `確率評価 ${pq.races_with_full_probability_input ?? 0}レース / LogLoss ${pq.mean_multiclass_log_loss ?? '-'} / Brier ${pq.mean_multiclass_brier_sum ?? '-'} / MRR ${pq.mean_reciprocal_rank ?? '-'} / Top10 ${formatPercent(pq.top10_accuracy)} / 確率合計 ${pq.mean_probability_mass ?? '-'}`;
+  show('bt-overall', `${selectionText} / ${scopeText} / ${probabilityText}`);
+  const map = [
+    ['bt-hit','hit_priority'],['bt-balance','balance'],['bt-middle','middle'],['bt-longshot','longshot'],['bt-super','super_longshot']
+  ];
+  for (const [id,key] of map) {
+    const c = result.categories?.[key];
+    show(id, c ? formatMetricSummary(c, c.races, c.race_hit_rate) : 'データなし');
+  }
+  show('backtest-note',`バックテスト完了：${result.records ?? 0}レース。保存0件。選択成績（払戻は確定オッズ）と全組合せの順位・確率品質を分離評価しています。将来の的中率を保証するものではありません。`,'note ok');
+}
+
+async function runBacktestDryRun() {
+  const button = element('run-backtest');
+  if (button.disabled || !currentSession) return;
+  let parsed;
+  try {
+    const raw = element('backtest-json').value.trim();
+    if (!raw) throw new Error('empty');
+    parsed = JSON.parse(raw);
+  } catch (_) {
+    show('backtest-note','JSON形式を確認できません。正しいJSONを貼り付けるかファイルを選んでください。','note error');
+    return;
+  }
+  const body = parsed?.mode === 'dry_run' && parsed?.payload ? parsed : {mode:'dry_run',payload:parsed};
+  button.disabled = true;
+  resetBacktestResults('実行中…');
+  show('backtest-note','履歴バックテストを実行しています。DB保存は行いません。','note pending');
+  try {
+    const response = await authenticatedPost(BACKTEST_URL, body);
+    let data = null; try { data = await response.json(); } catch (_) {}
+    if (response.status === 401) {
+      clearSession();
+      showSignedOut('ログイン状態を再確認できませんでした。もう一度ログインしてください。');
+      resetBacktestResults('未実行');
+      return;
+    }
+    const safe = response.ok && data?.success === true && data?.saved === false && data?.db_write_enabled === false && data?.production_prediction_enabled === false;
+    if (!safe) {
+      const details = Array.isArray(data?.validation_errors) ? data.validation_errors.join(' / ') : (data?.error || `HTTP ${response.status}`);
+      show('backtest-note',`バックテストできませんでした：${details}`,'note error');
+      resetBacktestResults('入力またはサーバー状態を確認してください');
+      return;
+    }
+    renderBacktestResult(data);
+  } catch (_) {
+    show('backtest-note','通信または実行エラーでバックテストできませんでした。','note error');
+    resetBacktestResults('実行失敗');
+  } finally {
+    const ready = currentSession && element('backtest-engine-status').classList.contains('ok');
+    button.disabled = !ready;
+  }
+}
+
+async function loadBacktestFile(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  if (file.size > 5_000_000) {
+    show('backtest-note','JSONファイルが大きすぎます。5MB以下のファイルを使用してください。','note error');
+    event.target.value = '';
+    return;
+  }
+  try {
+    const text = await file.text();
+    JSON.parse(text);
+    element('backtest-json').value = text;
+    resetBacktestResults('未実行');
+    show('backtest-note',`バックテストJSONを読み込みました：${file.name}`,'note ok');
+  } catch (_) {
+    show('backtest-note','選択したファイルは有効なJSONではありません。','note error');
+    event.target.value = '';
+  }
+}
+
+async function checkStatus() {
+  const button = element('refresh');
+  if (button.disabled) return;
+  button.disabled = true;
+  show('api-status','確認中…');
+  show('storage-status','未確認');
+  show('status-message','接続状態を確認しています。','note');
+  show('checked-at','確認時刻：確認中','note');
+  const controller = new AbortController();
+  const timeout = setTimeout(()=>controller.abort(),10000);
+  try {
+    const response = await fetch(STATUS_URL,{method:'GET',mode:'cors',credentials:'omit',cache:'no-store',signal:controller.signal});
+    if (!response.ok) throw new Error('HTTP '+response.status);
+    const data = await response.json();
+    if (data.success !== true || data.service !== 'predict-status') throw new Error('invalid_status');
+    show('api-status', data.api_connected ? '接続済み' : '未接続', data.api_connected ? 'ok' : 'pending');
+    show('storage-status', data.storage_ready ? '接続済み' : '未接続', data.storage_ready ? 'ok' : 'pending');
+    show('engine-status', data.prediction_engine_connected ? '接続済み' : '未接続', data.prediction_engine_connected ? 'ok' : 'pending');
+    show('write-status', data.write_mode === 'locked_until_engine' ? 'ロック中（安全）' : 'ロック状態を要確認', data.write_mode === 'locked_until_engine' ? 'pending' : 'error');
+    show('status-message','公開ステータスAPIを確認しました。','note');
+    if (currentSession) {
+      await checkOwnerVerification();
+      await checkDevEngine();
+      await checkHistoryPipeline();
+      await checkBacktestEngine();
+    }
+  } catch (error) {
+    show('api-status','接続を確認できません','error');
+    show('storage-status','未確認（通信失敗）','pending');
+    show('status-message', error.name === 'AbortError' ? '接続確認がタイムアウトしました。' : '状態を取得できませんでした。','note error');
+  } finally {
+    clearTimeout(timeout);
+    show('checked-at','確認試行時刻：'+new Date().toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'})+'（日本時間）','note');
+    button.disabled = false;
+  }
+}
+
+const ownerModelPreview = (() => {
+try { return KeirinOwnerModelPreview.attach({
+  document, host: document.getElementById('owner-model-host'),
+  get: () => authenticatedGet(DEV_ENGINE_URL),
+  post: body => authenticatedPost(DEV_ENGINE_URL, body),
+  identity: () => currentSession?.user?.id || null,
+  renderCategory
+}); } catch (_) {
+  const unavailable = () => { document.getElementById('owner-model-host').textContent = '合成モデル画面を読み込めませんでした。ページを再読み込みしてください。'; };
+  unavailable();
+  return Object.freeze({ reset: unavailable });
+}
+})();
+
+element('login').addEventListener('click',login);
+element('logout').addEventListener('click',logout);
+element('refresh').addEventListener('click',checkStatus);
+element('run-dry').addEventListener('click',runRealDryRun);
+element('save-snapshot').addEventListener('click',savePredictionSnapshot);
+element('race-file').addEventListener('change',loadRaceFile);
+for (const id of ['race-json','scheduled-start','prestart-confirmed']) {
+  element(id).addEventListener('input', () => {
+    lastDryRunSnapshot = null;
+    element('save-snapshot').disabled = true;
+    show('snapshot-note','入力が変わりました。保存前にdry-runを再実行してください。','note');
+  });
+}
+element('history-snapshot-file').addEventListener('change',loadHistorySnapshotFile);
+element('run-history').addEventListener('click',runHistoryPipeline);
+element('save-history').addEventListener('click',saveHistoryJson);
+element('history-dataset-files').addEventListener('change',loadHistoryDatasetFiles);
+element('save-dataset').addEventListener('click',saveHistoryDataset);
+element('run-dataset-backtest').addEventListener('click',runHistoryDatasetBacktest);
+element('run-backtest').addEventListener('click',runBacktestDryRun);
+element('backtest-file').addEventListener('change',loadBacktestFile);
+element('password').addEventListener('keydown',event=>{if(event.key==='Enter')login();});
+(async()=>{await restoreLogin();await checkStatus();})();
+</script>
+</body>
+</html>
